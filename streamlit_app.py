@@ -22,6 +22,7 @@ import textwrap
 import re
 import time
 from bokeh.models.widgets import Button
+
 from bokeh.models import CustomJS
 from streamlit_bokeh_events import streamlit_bokeh_events
 
@@ -75,10 +76,12 @@ def wrap_code(code: str, width: int = 80) -> str:
         stripped_line = line.lstrip()
         indent = len(line) - len(stripped_line)
         wrapped_line = textwrap.wrap(stripped_line, width=width - indent, break_long_words=False)
-        wrapped_line = [f"{' ' * indent}{l}" if i == 0 else f"{' ' * (indent + 4)}{l}" for i, l in enumerate(wrapped_line)]
+        wrapped_line = [f"{' ' * indent}{l}" if i ==
+                        0 else f"{' ' * (indent + 4)}{l}" for i, l in enumerate(wrapped_line)]
         wrapped_lines.extend(wrapped_line)
     wrapped_code = '\n'.join(wrapped_lines)
     return wrapped_code
+
 
 def wrap_text(text: str, width: int = 80) -> str:
     """
@@ -92,14 +95,15 @@ def wrap_text(text: str, width: int = 80) -> str:
     wrapped_text = textwrap.fill(text, width=width, replace_whitespace=False)
     return wrapped_text
 
+
 def line_divider():
     """Stupid function to draw a line because I cant get it to work."""
     line = ["_" for ii in range(50)]
-    
+
     return ''.join(line)
 
 # =============================================================================
-# streamlit control/interactions with the LLM
+# streamlit backend interaction
 # =============================================================================
 def flush_conversation():
     """
@@ -107,6 +111,7 @@ def flush_conversation():
     This function clears the generated responses, past user inputs, and chatbot history.
     Everything happens in the llm backend
     """
+    st.session_state['backend_available'] = False
     try:
         st.session_state['generated'] = [st.session_state['generated'][0]]
     except:
@@ -121,10 +126,13 @@ def flush_conversation():
         st.session_state['chatbot'].flush_history()
     except:
         pass
+
+    st.session_state['backend_available'] = True
     return
 
 
 def pop_conversation():
+    st.session_state['backend_available'] = False
     try:
         st.session_state['generated'] = st.session_state['generated'][:-1]
     except:
@@ -139,10 +147,12 @@ def pop_conversation():
         st.session_state['chatbot']._pop_history()
     except:
         pass
+    st.session_state['backend_available'] = True
     return
-    
 
-def generate_response(prompt, _chatbot): 
+
+@st.cache_data(max_entries=1, ttl=0.01)
+def generate_response(prompt, _chatbot):
     """
     Generate a response from the chatbot based on the given prompt.
     :param prompt: str, the user input prompt
@@ -150,11 +160,15 @@ def generate_response(prompt, _chatbot):
     :return: str, the generated response from the chatbot
     The system can yield (backend), currently not usefull in the streamlit
     """
-    response = ''
-    for yielded in st.session_state['chatbot'].send_receive_message(prompt):
-        response = response + yielded
-        yield yielded
+    try:
+        st.session_state['backend_available'] = False
+        response = st.session_state['chatbot'].send_receive_message(prompt)
+
+    except:
+        response = ''
+    st.session_state['backend_available'] = True
     return response
+
 
 def update_context_tokens_display():
     """
@@ -162,21 +176,30 @@ def update_context_tokens_display():
     This function calculates the number of context tokens in the chatbot's history
     and updates the display in the sidebar. (computation is in backend)
     """
+    st.session_state['backend_available'] = False
+
     context_tokens = st.session_state['chatbot']._count_tokens_in_history()
     context_tokens_placeholder.write(f"Context tokens: {context_tokens}")
+
+    st.session_state['backend_available'] = True
     return
 
+
 def set_file_paths(user_paths):
-    if not user_paths: pass
-     
+    if not user_paths:
+        pass
+
+    st.session_state['backend_available'] = False
+
     user_paths = user_paths.split('\n')
     user_paths = [user_path.replace('"', '') for user_path in user_paths]
     # send the file_paths to the chatbot. This appends in the main loop and is always updated
     if st.session_state['chatbot'].system_role == "Python copilot":
         st.session_state["file_paths"] = user_paths
         st.session_state['chatbot'].add_context_py_file(st.session_state["file_paths"])
-        print(*st.session_state["file_paths"])  
+        print(*st.session_state["file_paths"])
 
+    st.session_state['backend_available'] = True
     pass
 
 # =============================================================================
@@ -188,130 +211,17 @@ def fetch_text():
     :return: str, the user input text
     """
     input_text = st.text_area("Input", key="text")
-    if input_text != st.session_state["last_user_input"] and input_text != st.session_state["text_input"]:  
+
+    if input_text != st.session_state["last_user_input"] and input_text != st.session_state["text_input"]:
         st.session_state["text_input_timestamp"] = time.time()
         return input_text
     else:
         return st.session_state["text_input"]
 
-# second function for user input (paths)
-def get_text_paths():
-    """
-    Display a text area for user input and a button to clear the text area.
-    :return: str, the user input text
-    """
-    def clear_text():
-        st.session_state["text"] = ""
-        return
 
-    input_text = st.text_area("Input path (separate by line breaks)", key="paths")
-    # st.write(input_text)
-    return input_text 
-
-def display_response():
-    # only get in touch with the llm if the user has inputed something new
-    if st.session_state["user_input"] and st.session_state["user_input"] != st.session_state['last_user_input']:    
-        # append a new instance of user question and answer
-        st.session_state["generated"].append("")
-        st.session_state['past'].append(st.session_state["user_input"])                  
-        # save the new user input for the if statement
-        st.session_state['last_user_input'] = st.session_state["user_input"]
-        
-        #get the chatbot response and place in st.session_state["generated"]
-        response_generator = generate_response(st.session_state["user_input"], st.session_state['chatbot'])
-        st.session_state["generated"][-1] = ''.join(response_generator) 
-    
-    # display if there is something to display.
-    if len(st.session_state["generated"]) > 1:
-        #create empty response_placeholders
-        response_placeholders = []
-        for _ in range(len(st.session_state["generated"])):
-            response_placeholders.append(st.empty())
-            
-    
-        #read chatbot messages and display in REVERSE order
-        nb_of_exchanges = len(st.session_state["generated"])
-        for ii in range(0, nb_of_exchanges):
-            # select the last response
-            response_to_print = st.session_state["generated"][ii]
-            # display algorithm
-            if response_to_print:
-                try:
-                    # separate text from code
-                    segments, metadata = separate_text_and_code(response_to_print)
-                    # prepare the response as an empty string
-                    response_content = ""
-                    for idx, segment in enumerate(segments):
-                        # if segment is code we display as 
-                        if metadata[idx] == "code":
-                            # regex to find the code ```python <code> ```
-                            response_content += f"```python\n{segment.strip()}\n```\n"
-                        else:
-                            # if text we just wrap it
-                            wrapped_text = wrap_text(segment.strip())
-                            response_content += f"{wrapped_text}\n"
-                    # Add horizontal line to separate chatbot responses displays
-                    response_content += '\n' + line_divider()
-                    #display last response
-                    response_placeholders[nb_of_exchanges-ii-1].markdown(response_content)
-                    
-                except:
-                    pass
-            else:
-                pass
-
-        
-
-
-# =============================================================================
-# SESSION STATE INIT
-# =============================================================================
-st.set_page_config(layout="wide")
-if "init" not in st.session_state:
-    st.session_state['init'] = True
-    st.experimental_rerun()   
-if 'chatbot' not in st.session_state:
-    st.session_state['chatbot'] = chatbot_streamlit.llm()
-    
-if 'generated' not in st.session_state:
-    st.session_state['generated'] = [""]
-if 'past' not in st.session_state:
-    st.session_state['past'] = [""]
-    
-if 'file_paths' not in st.session_state:
-    st.session_state["file_paths"] = []  
-    
-if 'last_user_input' not in st.session_state:
-    st.session_state['last_user_input'] = ''
-if "user_input" not in st.session_state:   
-    st.session_state["user_input"] = ''
-if "speech_input" not in st.session_state:
-    st.session_state["speech_input"] = ""
-if "text_input" not in st.session_state:
-    st.session_state["text_input"] = ""
-    
-if "speech_input_timestamp" not in st.session_state:
-    st.session_state["speech_input_timestamp"] = 0
-if "text_input_timestamp" not in st.session_state:
-    st.session_state["text_input_timestamp"] = 0
-
-    
-else:
-    st.session_state.init = False
-
-
-
-# =============================================================================
-# SIDEBAR CONTENT
-# =============================================================================
-with st.sidebar:
-    st.title("🤗💬 Antoine chatbot Features:")
-    
-    # displays the number of tokens in the context
-    context_tokens_placeholder = st.empty()
-    
+def fetch_voice():
     # speech to text button
-    stt_button = Button(label="Speak", width=4)  
+    stt_button = Button(label="Speak", width=4)
     stt_button.js_on_event("button_click", CustomJS(code="""
         var recognition = new webkitSpeechRecognition();
         recognition.continuous = true;
@@ -337,17 +247,153 @@ with st.sidebar:
     
         document.addEventListener('mouseup', stopRecognition);
         document.addEventListener('touchend', stopRecognition);
-    """))  
-    
+    """))
+
     result = streamlit_bokeh_events(
         stt_button,
         events="GET_TEXT",
         key="listen",
         refresh_on_update=False,
         override_height=40,
-        debounce_time=0)      
+        debounce_time=0)
 
-    # select the llm engine   
+    if result and st.session_state['backend_available']:
+        if "GET_TEXT" in result:
+            new_speech_input = result.get("GET_TEXT")
+            if new_speech_input != st.session_state["speech_input"] and new_speech_input != st.session_state["last_user_input"]:
+                st.session_state["speech_input"] = new_speech_input
+                st.session_state["speech_input_timestamp"] = time.time()
+                return new_speech_input
+        else:
+            return st.session_state["speech_input"]
+
+    else:
+        return st.session_state["speech_input"]
+
+# second function for user input (paths)
+
+
+def get_text_paths():
+    """
+    Display a text area for user input and a button to clear the text area.
+    :return: str, the user input text
+    """
+
+    def clear_text():
+        st.session_state["text"] = ""
+        return
+
+    input_text = st.text_area("Input path (separate by line breaks)", key="paths")
+
+    return input_text
+
+
+def fetch_response():
+    # only get in touch with the llm if the user has inputed something new
+    if st.session_state["user_input"] and st.session_state["user_input"] != st.session_state['last_user_input']:
+        # append a new instance of user question and answer
+        st.session_state["generated"].append("")
+        st.session_state['past'].append(st.session_state["user_input"])
+        # save the new user input for the if statement
+        st.session_state['last_user_input'] = st.session_state["user_input"]
+
+        # get the chatbot response and place in st.session_state["generated"]
+        response_generator = generate_response(st.session_state["user_input"], st.session_state['chatbot'])
+        st.session_state["generated"][-1] = ''.join(response_generator)
+
+    return
+
+
+def display_response():
+    # display if there is something to display.
+    if len(st.session_state["generated"]) > 1:
+        # create empty response_placeholders
+        response_placeholders = []
+        for _ in range(len(st.session_state["generated"])):
+            response_placeholders.append(st.empty())
+
+        # read chatbot messages and display in REVERSE order
+        nb_of_exchanges = len(st.session_state["generated"])
+        for ii in range(0, nb_of_exchanges):
+            # select the last response
+            response_to_print = st.session_state["generated"][ii]
+            # display algorithm
+            if response_to_print:
+                try:
+                    # separate text from code
+                    segments, metadata = separate_text_and_code(response_to_print)
+                    # prepare the response as an empty string
+                    response_content = ""
+                    for idx, segment in enumerate(segments):
+                        # if segment is code we display as
+                        if metadata[idx] == "code":
+                            # regex to find the code ```python <code> ```
+                            response_content += f"```python\n{segment.strip()}\n```\n"
+                        else:
+                            # if text we just wrap it
+                            wrapped_text = wrap_text(segment.strip())
+                            response_content += f"{wrapped_text}\n"
+                    # Add horizontal line to separate chatbot responses displays
+                    response_content += '\n' + line_divider()
+                    # display last response
+                    response_placeholders[nb_of_exchanges-ii-1].markdown(response_content)
+
+                except:
+                    pass
+            else:
+                pass
+
+
+# =============================================================================
+# SESSION STATE INIT
+# =============================================================================
+st.set_page_config(layout="wide")
+if "init" not in st.session_state:
+    # st.cache_data.clear()
+    # st.cache_resource.clear()
+    st.session_state['init'] = True
+    st.experimental_rerun()
+else:
+    st.session_state.init = False
+
+if 'chatbot' not in st.session_state:
+    st.session_state['chatbot'] = chatbot_streamlit.llm()
+if 'backend_available' not in st.session_state:
+    st.session_state['backend_available'] = True
+
+if 'generated' not in st.session_state:
+    st.session_state['generated'] = [""]
+if 'past' not in st.session_state:
+    st.session_state['past'] = [""]
+
+if 'file_paths' not in st.session_state:
+    st.session_state["file_paths"] = []
+
+if 'last_user_input' not in st.session_state:
+    st.session_state['last_user_input'] = ''
+if "user_input" not in st.session_state:
+    st.session_state["user_input"] = ''
+if "speech_input" not in st.session_state:
+    st.session_state["speech_input"] = ""
+if "text_input" not in st.session_state:
+    st.session_state["text_input"] = ""
+
+if "speech_input_timestamp" not in st.session_state:
+    st.session_state["speech_input_timestamp"] = 0
+if "text_input_timestamp" not in st.session_state:
+    st.session_state["text_input_timestamp"] = 0
+
+
+# =============================================================================
+# SIDEBAR CONTENT
+# =============================================================================
+with st.sidebar:
+    st.title("🤗💬 Antoine chatbot Features:")
+
+    # displays the number of tokens in the context
+    context_tokens_placeholder = st.empty()
+
+    # select the llm engine
     add_vertical_space(2)
     option_engine = st.selectbox(
         'Engine',
@@ -363,22 +409,20 @@ with st.sidebar:
         ("Python copilot", 'coder', 'commenter', 'chatbot', "dummy"))
     if 'chatbot' in st.session_state and st.session_state['chatbot'].system_function != option_system:
         st.session_state['chatbot'].set_system_function(option_system)
-        st.write(st.session_state['chatbot'].system_function) 
-     
+        st.write(st.session_state['chatbot'].system_function)
+
     # delete history
     add_vertical_space(2)
     if st.button('Flush memory'):
         if 'chatbot' in st.session_state:
             st.write('Flushed')  # displayed when the button is clicked
-            flush_conversation()            
+            flush_conversation()
     # pop history
     if st.button('Pop memory'):
         if 'chatbot' in st.session_state:
             st.write('Poped')  # displayed when the button is clicked
             pop_conversation()
-            
 
-         
 
 # =============================================================================
 # Layout of input/response containers
@@ -388,49 +432,33 @@ colored_header(label='', description='', color_name='blue-30')
 response_container = st.container()
 
 with input_container:
-    
     # path input for files
     user_paths = get_text_paths()
     set_file_paths(user_paths)
     # update context
     update_context_tokens_display()
-    
-    # Applying the user input box     
-    st.session_state["text_input"] = fetch_text()
-    
-     
 
-        
-    
+    # Applying the user input box
+    if st.session_state['backend_available']:
+        st.session_state["text_input"] = fetch_text()
 
-    
-    if result:
-        if "GET_TEXT" in result:
-           new_speech_input = result.get("GET_TEXT")
-           if new_speech_input != st.session_state["speech_input"] and new_speech_input != st.session_state["last_user_input"]:
-               st.session_state["speech_input"] = new_speech_input
-               st.session_state["speech_input_timestamp"] = time.time()
+    # Applying the user speech:
+    if st.session_state['backend_available']:
+        st.session_state["speech_input"] = fetch_voice()
 
-
-
-
-    with response_container:   
-        # choose which respond to send, send the last one:
-        if st.session_state["speech_input_timestamp"] >= st.session_state["text_input_timestamp"] :
-            st.session_state["user_input"] = st.session_state['speech_input']
-        else:
-            st.session_state["user_input"] = st.session_state['text_input']
-            
-        if st.session_state["user_input"]:
-            st.write(st.session_state["user_input"] + '\n' + line_divider())
-            display_response()
-
-    
-    
-
-     
 # =============================================================================
 # Conditional display of AI generated responses as a function of user provided prompts
 # =============================================================================
+with response_container:
+    # choose which respond to send, send the last one:
+    if st.session_state["speech_input_timestamp"] >= st.session_state["text_input_timestamp"]:
+        st.session_state["user_input"] = st.session_state['speech_input']
+    else:
+        st.session_state["user_input"] = st.session_state['text_input']
 
-    
+    if st.session_state["user_input"]:
+        st.write(st.session_state["user_input"])
+        st.write(line_divider())
+
+        fetch_response()
+        display_response()

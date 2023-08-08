@@ -87,10 +87,11 @@ class llm():
             # send full history has payload
             payload = self.history
             # send history to llm and get response
-            response = ''
-            for yielded in self._send_payload_stream_answer(payload):
-                response = response + yielded
-                yield yielded
+            # response = ''
+            # for yielded in self._send_payload_stream_answer(payload):
+            #     response = response + yielded
+            #     yield yielded
+            response = self._send_payload_get_answer(payload)
             # append history with system message
             self._append_history(role="assistant", content=response)
         return response
@@ -336,7 +337,49 @@ file content:
                 number_of_tokens_in_history = self._count_tokens()
         return
 
-    def _send_payload_stream_answer(self, payload):
+    # def _send_payload_stream_answer(self, payload):
+    #     """
+    #     Send the payload to the OpenAI API and stream the response, handling timeouts and retries.
+
+    #     This function sends the payload to the OpenAI API using the ChatCompletion.create method with streaming enabled.
+    #     It handles timeouts and retries up to 3 times before returning the response.
+
+    #     Args:
+    #         self: The Chatbot instance.
+    #         payload (dict): The payload to send to the OpenAI API.
+
+    #     Returns:
+    #         str: The response from the OpenAI API.
+    #     """
+    #     time.sleep(0.5)
+    #     # we make multiple tries with a 10second timeout
+    #     is_to_do = 1  # break condition 1
+    #     try_counter = 0  # break contition 2: will break if number of attempts is 5
+    #     while is_to_do == 1 and try_counter <= 3:
+    #         try:
+    #             for chunk in openai.ChatCompletion.create(
+    #                     engine=self.engine,
+    #                     temperature=0,
+    #                     max_tokens=self.max_tokens_in_response,
+    #                     messages=payload,
+    #                     stream=False,
+    #                     timeout=10):
+    #                 content = chunk["choices"][0].get("delta", {}).get("content")
+    #                 if content is not None:
+    #                     print(content, end='')
+    #                     yield content
+
+    #             is_to_do = 0
+
+    #         except Exception as e:
+    #             logging.error(traceback.format_exc())
+    #             print("Timeout. Retry:", try_counter)
+    #             try_counter += 1
+    #             time.sleep(1)
+
+    #     return
+    
+    def _send_payload_get_answer(self, payload):
         """
         Send the payload to the OpenAI API and stream the response, handling timeouts and retries.
 
@@ -351,23 +394,20 @@ file content:
             str: The response from the OpenAI API.
         """
         time.sleep(0.5)
+        response = ''
         # we make multiple tries with a 10second timeout
         is_to_do = 1  # break condition 1
         try_counter = 0  # break contition 2: will break if number of attempts is 5
         while is_to_do == 1 and try_counter <= 3:
             try:
-                for chunk in openai.ChatCompletion.create(
+                result = openai.ChatCompletion.create(
                         engine=self.engine,
                         temperature=0,
                         max_tokens=self.max_tokens_in_response,
                         messages=payload,
-                        stream=True,
-                        timeout=10):
-                    content = chunk["choices"][0].get("delta", {}).get("content")
-                    if content is not None:
-                        print(content, end='')
-                        yield content
-
+                        timeout=10)
+                response = result["choices"][0]["message"]["content"]
+                print(response)
                 is_to_do = 0
 
             except Exception as e:
@@ -376,7 +416,7 @@ file content:
                 try_counter += 1
                 time.sleep(1)
 
-        return
+        return response
 
     def _pop_history(self):
         """
