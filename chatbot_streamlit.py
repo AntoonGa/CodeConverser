@@ -10,6 +10,7 @@ import traceback
 import logging
 import tiktoken
 import openai
+from FileReader import FileReader
 
 # set path for API config
 import os
@@ -46,9 +47,11 @@ class llm():
         """
 
         # initiate system function
-        self.set_system_function("coder")
+        self.set_system_function("Python copilot")
         # set system model and context length according to chosen model
         self.set_engine('gpt4')
+        # set a file reader from the FileReader module
+        self.Reader = FileReader()
         
         print("---")
         print("INIT IS DONE")
@@ -135,7 +138,7 @@ class llm():
         print("Engine:", self.engine)
         return 
 
-    def set_system_function(self, user_input="coder"):
+    def set_system_function(self, user_input="Python copilot"):
         """
         Initialize the chatbot's system function and set it as the first entry in the chat history.      
 
@@ -146,37 +149,22 @@ class llm():
             None
         """
         # add to this dictionnaries different roles that the system can take:)
-        hardcoded_systems = {"commenter": """
-        Are a very high performing coder reviewer.
-        You will be provided with code and you will provide in-context comment for the code.
-        This includes dockstrings, function headers important line comments and Python function formating.
-        When you provide code, make sur it is well delimited from your other sentenses.
-        """,
-                             "coder": """
-        You are a coding assistant for Python developpers. A Python co-pilot !
-        You are consice, precice and code at the highest level.
-        You use a wide variety of famous Python packages and libraries.
-        You provide codes with good comments and functions headers indicating the types of output and arguments.
-        When you provide code, make sur it is well delimited from your other sentenses.
-        """,
-                             "chatbot": """
-        You are a helpfull assistant.
-        You provide accurate answer to users queries.
-        """,
-                            "dummy": """
-        We will play a game you and me.
-        You will be a very very stupid IA that believe stupid things.
-        I will ask question and you will answer idiotic things. :)
-        """,
+        hardcoded_systems = {"Chatbot assistant": """
+        You are a helpfull assistant. You are very sharp and assertive.
+        You provide accurate answers to users queries.
         
+        If you are provided documents below, use them as context.
+        """,
+                            
                             "Python copilot": """
         You are a coding assistant for Python developpers. A Python co-pilot !
         You are consice, precice and code at the highest level.
         You use a wide variety of famous Python packages and libraries.
+        You also know other programming languages.
         You provide codes with good comments and functions headers indicating the types of output and arguments.
-        When you provide code, make sur it is well delimited from your other sentenses.
+        When you provide code, make sure it is well delimited from your other sentenses.
 
-        You are provided the code below and the file sources to give you context. Use this context.
+        If you are provided code below. Use this context.
         """}
 
         if user_input in hardcoded_systems:
@@ -206,7 +194,7 @@ class llm():
         print("FLUSHED HISTORY")
         return
     
-    def add_context_py_file(self, file_paths : list[str]):
+    def add_context_file(self, file_paths : list[str]):
         """
         Add the content of the specified Python files to the chatbot's system function context.
 
@@ -229,12 +217,12 @@ class llm():
             print("Please input a list of paths")
             return
         
-        # reset system function to python copilot
-        self.set_system_function(user_input="Python copilot")
+        # reset system function history to default
+        self.set_system_function(self.system_function)
         
         #template context
         template_context = """\n##################################
-file path: {}
+file name: {}
 -------------------------------
 file content:
 {}
@@ -252,12 +240,14 @@ file content:
             file_list_string = template_file_list
             # add files one by one
             for file_path in file_paths:
-                #load py file to string
-                py_string = self._read_py_file(file_path)
-                
-                if py_string:
+                #load file and extract content            
+                document_content_and_metadata = self.Reader._read_single_document(file_path)
+                # dump into a hashmap
+                text_string = document_content_and_metadata["file_text"]
+                file_name = document_content_and_metadata["file_full_name"]   
+                if text_string:
                     # add to context
-                    context_string = context_string + template_context.format(file_path, py_string)
+                    context_string = context_string + template_context.format(file_name, text_string)
                     # add to file list
                     file_list_string = file_list_string + "\n#" + file_path
                 
@@ -265,10 +255,7 @@ file content:
             context_full = file_list_string + "\n##################################\n"
             context_full = context_full + context_string
             
-                
-                
-                
-                
+        
         #check context_full fits in remaining tokens
         tokens_in_history = self._count_tokens_in_history()
         left_over_tokens = self.max_token_context - tokens_in_history
@@ -336,48 +323,6 @@ file content:
                 # count again
                 number_of_tokens_in_history = self._count_tokens()
         return
-
-    # def _send_payload_stream_answer(self, payload):
-    #     """
-    #     Send the payload to the OpenAI API and stream the response, handling timeouts and retries.
-
-    #     This function sends the payload to the OpenAI API using the ChatCompletion.create method with streaming enabled.
-    #     It handles timeouts and retries up to 3 times before returning the response.
-
-    #     Args:
-    #         self: The Chatbot instance.
-    #         payload (dict): The payload to send to the OpenAI API.
-
-    #     Returns:
-    #         str: The response from the OpenAI API.
-    #     """
-    #     time.sleep(0.5)
-    #     # we make multiple tries with a 10second timeout
-    #     is_to_do = 1  # break condition 1
-    #     try_counter = 0  # break contition 2: will break if number of attempts is 5
-    #     while is_to_do == 1 and try_counter <= 3:
-    #         try:
-    #             for chunk in openai.ChatCompletion.create(
-    #                     engine=self.engine,
-    #                     temperature=0,
-    #                     max_tokens=self.max_tokens_in_response,
-    #                     messages=payload,
-    #                     stream=False,
-    #                     timeout=10):
-    #                 content = chunk["choices"][0].get("delta", {}).get("content")
-    #                 if content is not None:
-    #                     print(content, end='')
-    #                     yield content
-
-    #             is_to_do = 0
-
-    #         except Exception as e:
-    #             logging.error(traceback.format_exc())
-    #             print("Timeout. Retry:", try_counter)
-    #             try_counter += 1
-    #             time.sleep(1)
-
-    #     return
     
     def _send_payload_get_answer(self, payload):
         """
@@ -446,18 +391,6 @@ file content:
         new_message = {"role": role, "content": content}
         self.history.append(new_message)
         return
-    
-    def _read_py_file(self, file_path):
-        try:
-            with open(file_path, 'r') as file:
-                py_string = file.read()
-            return py_string
-        except FileNotFoundError:
-            return "File not found."
-        except Exception as e:
-            return f"Error occurred while reading the file: {str(e)}"
-        return py_string
-
 
 # %%   
 if __name__ == "__main__":
@@ -467,7 +400,7 @@ if __name__ == "__main__":
     chatbot.set_system_function("Python copilot")
     
     file_paths = []
-    chatbot.add_context_py_file(file_paths)
+    chatbot.add_context_file(file_paths)
     
     query = "list all the functions in this project"
     response = ''
@@ -475,7 +408,7 @@ if __name__ == "__main__":
         response = response + yielded
     
     file_paths = [r'./chatbot_streamlit.py', r'./openia_config.txt', r'./readme.md']
-    chatbot.add_context_py_file(file_paths)
+    chatbot.add_context_file(file_paths)
     
     aa = chatbot.history
     

@@ -182,22 +182,41 @@ def update_context_tokens_display():
     context_tokens_placeholder.write(f"Context tokens: {context_tokens}")
 
     st.session_state['backend_available'] = True
-    return
-
+    return context_tokens
 
 def set_file_paths(user_paths):
+    """
+    Send the list of path to the LLM
+    The LLM will attempt to load these files
+
+    Parameters
+    ----------
+    user_paths : str
+        separated by "\n".
+
+    Returns
+    -------
+    None.
+
+    """
     if not user_paths:
+        pass
+    
+    if user_paths == st.session_state['last_file_paths']:
         pass
 
     st.session_state['backend_available'] = False
 
     user_paths = user_paths.split('\n')
-    user_paths = [user_path.replace('"', '') for user_path in user_paths]
+    user_paths = [user_path.replace('"', '').strip() for user_path in user_paths]
     # send the file_paths to the chatbot. This appends in the main loop and is always updated
-    if st.session_state['chatbot'].system_role == "Python copilot":
-        st.session_state["file_paths"] = user_paths
-        st.session_state['chatbot'].add_context_py_file(st.session_state["file_paths"])
-        print(*st.session_state["file_paths"])
+    # if st.session_state['chatbot'].system_role == "Python copilot":
+    st.session_state["file_paths"] = user_paths
+    st.session_state['chatbot'].add_context_file(st.session_state["file_paths"])
+    
+    # reassign to last used files.
+    st.session_state['last_file_paths'] = user_paths
+    print(*st.session_state["file_paths"])
 
     st.session_state['backend_available'] = True
     pass
@@ -343,7 +362,30 @@ def display_response():
             else:
                 pass
 
-
+def inject_custom_css(css: str):
+    st.markdown(f"<style>{css}</style>", unsafe_allow_html=True)
+    
+def save_conversation_to_file():
+    file_name = "conversation.txt"
+    if st.session_state["file_paths"] :
+        st.session_state['chatbot'].add_context_file(st.session_state["file_paths"])
+         
+    
+    with open(file_name, "w", encoding="utf-8") as f:
+        for i in range(len(st.session_state["past"])):
+            user_input = st.session_state["past"][i]
+            chatbot_response = st.session_state["generated"][i]
+            f.write(f"Dialog: {i}\n")
+            f.write(f"User: {user_input}\n")
+            f.write("-----\n")
+            f.write(f"Chatbot: {chatbot_response}\n")
+            f.write("################################################\n\n")
+        
+        chatbot_system_function = st.session_state['chatbot'].history[0]['content']   
+        f.write(f"chatbot_system_function: {chatbot_system_function}\n")
+    st.write(st.session_state['chatbot'].history)
+        
+    
 # =============================================================================
 # SESSION STATE INIT
 # =============================================================================
@@ -368,6 +410,8 @@ if 'past' not in st.session_state:
 
 if 'file_paths' not in st.session_state:
     st.session_state["file_paths"] = []
+if 'last_file_paths' not in st.session_state:
+    st.session_state['last_file_paths'] = []
 
 if 'last_user_input' not in st.session_state:
     st.session_state['last_user_input'] = ''
@@ -384,44 +428,49 @@ if "text_input_timestamp" not in st.session_state:
     st.session_state["text_input_timestamp"] = 0
 
 
+
 # =============================================================================
 # SIDEBAR CONTENT
 # =============================================================================
 with st.sidebar:
-    st.title("🤗💬 Antoine chatbot Features:")
-
+    add_vertical_space(0)
+    st.title("🤗💬 Antoine chatbot")
     # displays the number of tokens in the context
     context_tokens_placeholder = st.empty()
 
+    
     # select the llm engine
-    add_vertical_space(2)
-    option_engine = st.selectbox(
-        'Engine',
-        ('gpt4', 'gpt3'))
+    add_vertical_space(0)       
+    option_engine = st.selectbox(label = '', options = ('gpt4', 'gpt3'))
     if 'chatbot' in st.session_state and st.session_state['chatbot'].engine != option_engine:
         st.session_state['chatbot'].set_engine(option_engine)
-        st.write(st.session_state['chatbot'].engine)
+        # st.write(st.session_state['chatbot'].engine)
 
     # select the llm function
-    add_vertical_space(2)
-    option_system = st.selectbox(
-        'System function',
-        ("Python copilot", 'coder', 'commenter', 'chatbot', "dummy"))
+    add_vertical_space(0)
+    option_system = st.selectbox(label = '', options = ("Python copilot", 'Chatbot assistant'))
     if 'chatbot' in st.session_state and st.session_state['chatbot'].system_function != option_system:
         st.session_state['chatbot'].set_system_function(option_system)
-        st.write(st.session_state['chatbot'].system_function)
-
+        # st.write(st.session_state['chatbot'].system_function)
+    
     # delete history
-    add_vertical_space(2)
     if st.button('Flush memory'):
         if 'chatbot' in st.session_state:
             st.write('Flushed')  # displayed when the button is clicked
             flush_conversation()
     # pop history
+    add_vertical_space(0)
     if st.button('Pop memory'):
         if 'chatbot' in st.session_state:
             st.write('Poped')  # displayed when the button is clicked
             pop_conversation()
+    # save conversation
+    add_vertical_space(0)
+    if st.button("Save Conversation"):
+        save_conversation_to_file()
+        st.write("Conversation saved to conversation.txt")
+        
+    
 
 
 # =============================================================================
@@ -431,13 +480,15 @@ input_container = st.container()
 colored_header(label='', description='', color_name='blue-30')
 response_container = st.container()
 
+
+
 with input_container:
+    
     # path input for files
     user_paths = get_text_paths()
     set_file_paths(user_paths)
     # update context
     update_context_tokens_display()
-
     # Applying the user input box
     if st.session_state['backend_available']:
         st.session_state["text_input"] = fetch_text()
@@ -459,6 +510,5 @@ with response_container:
     if st.session_state["user_input"]:
         st.write(st.session_state["user_input"])
         st.write(line_divider())
-
         fetch_response()
         display_response()

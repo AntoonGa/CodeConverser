@@ -1,2 +1,4 @@
 openia_config.txt
 __pycache__/chatbot_streamlit.cpython-310.pyc
+__pycache__/
+conversation.txt
