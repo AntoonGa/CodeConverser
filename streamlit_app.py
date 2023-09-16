@@ -26,6 +26,7 @@ from bokeh.models.widgets import Button
 from bokeh.models import CustomJS
 from streamlit_bokeh_events import streamlit_bokeh_events
 
+
 # =============================================================================
 # text formating functions : these should be placed in a custom library
 # =============================================================================
@@ -184,33 +185,25 @@ def update_context_tokens_display():
     st.session_state['backend_available'] = True
     return context_tokens
 
-def set_file_paths(user_paths):
+def set_file_paths(uploaded_files):
     """
     Send the list of path to the LLM
     The LLM will attempt to load these files
 
     Parameters
     ----------
-    user_paths : str
-        separated by "\n".
+    uploaded_files : str
+       from drag and drop streamlit.file_uploader
 
     Returns
     -------
     None.
 
     """
-    if not user_paths:
-        pass
-    
-    if user_paths == st.session_state['last_file_paths']:
-        pass
 
     st.session_state['backend_available'] = False
 
-    user_paths = user_paths.split('\n')
-    user_paths = [user_path.replace('"', '').strip() for user_path in user_paths]
-    # send the file_paths to the chatbot. This appends in the main loop and is always updated
-    # if st.session_state['chatbot'].system_role == "Python copilot":
+    user_paths = [uploaded_file.name for uploaded_file in uploaded_files]
     st.session_state["file_paths"] = user_paths
     st.session_state['chatbot'].add_context_file(st.session_state["file_paths"])
     
@@ -229,7 +222,7 @@ def fetch_text():
     Display a text area for user input and a button to clear the text area.
     :return: str, the user input text
     """
-    input_text = st.text_area("Input", key="text")
+    input_text = st.text_area("Votre question :", key="text")
 
     if input_text != st.session_state["last_user_input"] and input_text != st.session_state["text_input"]:
         st.session_state["text_input_timestamp"] = time.time()
@@ -291,21 +284,13 @@ def fetch_voice():
 
 # second function for user input (paths)
 
-
-def get_text_paths():
+def get_file_upload():
     """
-    Display a text area for user input and a button to clear the text area.
-    :return: str, the user input text
+    Display a file uploader for the user to upload files.
+    :return: list, a list of uploaded file objects
     """
-
-    def clear_text():
-        st.session_state["text"] = ""
-        return
-
-    input_text = st.text_area("Input path (separate by line breaks)", key="paths")
-
-    return input_text
-
+    uploaded_files = st.file_uploader("Glissez et déposez vos fichiers pour intérargir avec 😀", accept_multiple_files=True)
+    return uploaded_files
 
 def fetch_response():
     # only get in touch with the llm if the user has inputed something new
@@ -485,8 +470,9 @@ response_container = st.container()
 with input_container:
     
     # path input for files
-    user_paths = get_text_paths()
+    user_paths = get_file_upload()
     set_file_paths(user_paths)
+
     # update context
     update_context_tokens_display()
     # Applying the user input box

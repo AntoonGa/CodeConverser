@@ -7,6 +7,7 @@ asttokens==2.0.5
 async-timeout==4.0.2
 attrs==23.1.0
 backcall==0.2.0
+bokeh==3.2.2
 certifi==2023.7.22
 charset-normalizer==3.2.0
 cloudpickle==2.2.1
@@ -73,4 +74,4 @@ wcwidth==0.2.5
 wheel==0.38.4
 XlsxWriter==3.1.2
 yarl==1.9.2
-
+streamlit-bokeh-events==0.1.2
